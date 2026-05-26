@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:padding="16dp"
+    android:background="#F5F5F5">
+
+    <Button
+        android:id="@+id/pickFolderBtn"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="选择文件夹"
+        android:textSize="20sp"
+        android:textAllCaps="false"
+        android:backgroundTint="#1976D2"
+        android:textColor="#FFFFFF"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/folderPathText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="请选择包含MP3文件的文件夹"
+        android:textSize="16sp"
+        android:textColor="#666666"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/nowPlayingText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="未选择文件夹"
+        android:textSize="18sp"
+        android:textColor="#222222"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="12dp" />
+
+    <SeekBar
+        android:id="@+id/seekBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="16dp">
+
+        <ImageButton
+            android:id="@+id/prevBtn"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@drawable/ic_prev"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="上一个" />
+
+        <ImageButton
+            android:id="@+id/playPauseBtn"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_play"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="播放/暂停"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp" />
+
+        <ImageButton
+            android:id="@+id/nextBtn"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@drawable/ic_next"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="下一个" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DDDDDD"
+        android:layout_marginBottom="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/trackList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#FFFFFF"
+        android:elevation="2dp" />
+
+</LinearLayout>
