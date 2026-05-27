@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MP3Player" parent="Theme.Material3.DayNight">
-        <item name="colorPrimary">#2196F3</item>
+    <style name="Theme.MP3Player" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#2A6DF7</item>
         <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:statusBarColor">#D5D6F9</item>
+        <item name="android:navigationBarColor">#F5F6FA</item>
     </style>
 </resources>

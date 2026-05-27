@@ -1,6 +1,7 @@
 package com.buzz.mp3player
 
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -11,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.io.File
+import android.util.Log
 
 class MainActivity : AppCompatActivity() {
 
@@ -18,6 +20,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var trackList: RecyclerView
     private lateinit var trackAdapter: TrackAdapter
     private lateinit var nowPlayingText: TextView
+    private lateinit var timeText: TextView
+    private lateinit var trackCountText: TextView
     private lateinit var seekBar: SeekBar
     private lateinit var playPauseBtn: ImageButton
     private lateinit var prevBtn: ImageButton
@@ -43,7 +47,8 @@ class MainActivity : AppCompatActivity() {
                 if (dur > 0) {
                     seekBar.max = dur
                     seekBar.progress = pos
-                    nowPlayingText.text = "${formatTime(pos)} / ${formatTime(dur)}  ${currentFiles[currentIndex].name}"
+                    timeText.text = "${formatTime(pos)}/${formatTime(dur)}"
+                    nowPlayingText.text = currentFiles[currentIndex].name
                 } else {
                     nowPlayingText.text = currentFiles[currentIndex].name
                 }
@@ -64,6 +69,8 @@ class MainActivity : AppCompatActivity() {
         folderPathText = findViewById(R.id.folderPathText)
         trackList = findViewById(R.id.trackList)
         nowPlayingText = findViewById(R.id.nowPlayingText)
+        timeText = findViewById(R.id.timeText)
+        trackCountText = findViewById(R.id.trackCountText)
         seekBar = findViewById(R.id.seekBar)
         playPauseBtn = findViewById(R.id.playPauseBtn)
         prevBtn = findViewById(R.id.prevBtn)
@@ -87,7 +94,8 @@ class MainActivity : AppCompatActivity() {
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && currentIndex >= 0 && currentIndex < currentFiles.size) {
-                    nowPlayingText.text = "${formatTime(progress)} / ${formatTime(seekBar.max)}  ${currentFiles[currentIndex].name}"
+                    timeText.text = "${formatTime(progress)}/${formatTime(seekBar.max)}"
+                    nowPlayingText.text = currentFiles[currentIndex].name
                 }
             }
             override fun onStartTrackingTouch(sb: SeekBar?) { seekBarTracking = true }
@@ -104,6 +112,7 @@ class MainActivity : AppCompatActivity() {
                 playTrackAt(currentIndex + 1)
             } else {
                 nowPlayingText.text = "播放完毕"
+                timeText.text = ""
                 folderKey?.let { PlaybackStore.clearPosition(it) }
             }
         }
@@ -111,6 +120,7 @@ class MainActivity : AppCompatActivity() {
             isPlaying = false
             playPauseBtn.setImageResource(R.drawable.ic_play)
             nowPlayingText.text = "播放出错，请重试"
+            timeText.text = ""
         }
         updateHandler.post(updateRunnable)
 
@@ -155,7 +165,6 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
-        // No saved folder, user needs to pick one
         folderPathText.text = "请选择包含MP3文件的文件夹"
     }
 
@@ -191,6 +200,18 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun getMp3Duration(file: File): String {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(file.absolutePath)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toIntOrNull() ?: 0
+            retriever.release()
+            formatTime(durationMs)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     private fun loadFolderFromPath(path: String) {
         val dir = File(path)
         val files = dir.listFiles()
@@ -209,16 +230,23 @@ class MainActivity : AppCompatActivity() {
         folderKey = path
         currentFiles = files
         PlaybackService.folderKey = path
-        folderPathText.text = "文件夹: ${dir.name}"
+        folderPathText.text = dir.name
         PlaybackStore.saveFolderPath(path)
+
+        // Get durations for all files
+        val durations = files.map { getMp3Duration(it) }
 
         trackAdapter.updateFiles(
             files.map { it.name },
-            files.map { Uri.fromFile(it) }
+            files.map { Uri.fromFile(it) },
+            durations
         )
+
+        trackCountText.text = "${files.size} 首歌曲"
 
         val savedFile = PlaybackStore.getSavedFile(path)
         val savedPos = PlaybackStore.getSavedPosition(path)
+        Log.i("MainActivity", "loadFolderFromPath: path=$path, savedFile=$savedFile, savedPos=$savedPos")
         currentIndex = -1
         isPlaying = false
         savedPositionMs = 0
@@ -229,18 +257,32 @@ class MainActivity : AppCompatActivity() {
             if (idx >= 0) {
                 currentIndex = idx
                 savedPositionMs = savedPos
-                nowPlayingText.text = "${formatTime(savedPos)} / --  ${files[idx].name}"
+                nowPlayingText.text = files[idx].name
+                timeText.text = "${formatTime(savedPos)}/${durations[idx]}"
+                // 初始化进度条：设置总时长和当前位置
+                val durMs = try {
+                    val retriever = MediaMetadataRetriever()
+                    retriever.setDataSource(files[idx].absolutePath)
+                    val d = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toIntOrNull() ?: 0
+                    retriever.release()
+                    d
+                } catch (e: Exception) { 0 }
+                seekBar.max = durMs
+                seekBar.progress = savedPos
+                Log.i("MainActivity", "SeekBar: max=$durMs, progress=$savedPos")
                 trackAdapter.highlightIndex = idx
                 trackAdapter.notifyDataSetChanged()
             } else {
                 currentIndex = 0
                 nowPlayingText.text = files[0].name
+                timeText.text = "0:00/${durations[0]}"
                 trackAdapter.highlightIndex = 0
                 trackAdapter.notifyDataSetChanged()
             }
         } else {
             currentIndex = 0
             nowPlayingText.text = files[0].name
+            timeText.text = "0:00/${durations[0]}"
             trackAdapter.highlightIndex = 0
             trackAdapter.notifyDataSetChanged()
         }
@@ -252,7 +294,7 @@ class MainActivity : AppCompatActivity() {
         val trackName = currentFiles[index].name
         nowPlayingText.text = trackName
         val file = currentFiles[index]
-        PlaybackService.play(this, Uri.fromFile(file), positionMs)
+        PlaybackService.play(this, Uri.fromFile(file), positionMs, trackName)
         isPlaying = true
         playPauseBtn.setImageResource(R.drawable.ic_pause)
         trackAdapter.highlightIndex = index
@@ -306,6 +348,35 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveCurrentPosition()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 从 PlaybackService 同步最新播放状态到界面
+        if (PlaybackService.isActive && currentIndex >= 0 && currentIndex < currentFiles.size) {
+            isPlaying = true
+            playPauseBtn.setImageResource(R.drawable.ic_pause)
+            val pos = PlaybackService.currentPosition
+            val dur = PlaybackService.duration
+            if (dur > 0) {
+                seekBar.max = dur
+                seekBar.progress = pos
+                timeText.text = "${formatTime(pos)}/${formatTime(dur)}"
+            }
+            nowPlayingText.text = currentFiles[currentIndex].name
+        } else if (currentIndex >= 0 && currentIndex < currentFiles.size) {
+            // 暂停状态，从 SharedPreferences 读取最新保存的位置
+            isPlaying = false
+            playPauseBtn.setImageResource(R.drawable.ic_play)
+            val savedPos = PlaybackService.currentPosition
+            val dur = PlaybackService.duration
+            if (dur > 0) {
+                seekBar.max = dur
+                seekBar.progress = savedPos
+                timeText.text = "${formatTime(savedPos)}/${formatTime(dur)}"
+            }
+            nowPlayingText.text = currentFiles[currentIndex].name
+        }
     }
 
     override fun onStop() {

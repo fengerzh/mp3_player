@@ -38,4 +38,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("androidx.preference:preference-ktx:1.2.1")
+
+    // Media compat - MediaSessionCompat for lock-screen controls
+    implementation("androidx.media:media:1.7.0")
 }
