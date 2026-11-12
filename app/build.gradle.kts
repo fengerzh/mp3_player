@@ -40,5 +40,5 @@ dependencies {
     implementation("androidx.preference:preference-ktx:1.2.1")
 
     // Media compat - MediaSessionCompat for lock-screen controls
-    implementation("androidx.media:media:1.7.0")
+    implementation("androidx.media:media:1.8.0")
 }
