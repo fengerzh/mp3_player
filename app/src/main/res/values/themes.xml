@@ -3,7 +3,7 @@
     <style name="Theme.MP3Player" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">#2A6DF7</item>
         <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="android:statusBarColor">#D5D6F9</item>
-        <item name="android:navigationBarColor">#F5F6FA</item>
+        <!-- 系统栏颜色由 MainActivity 的 WindowInsetsControllerCompat 控制。
+             statusBarColor / navigationBarColor 在 Android 15 已废弃且无效，勿再加回。 -->
     </style>
 </resources>

@@ -32,3 +32,10 @@ gradle/.gradle/
 
 # MP3 test files (user-specific, don't commit)
 *.mp3
+
+# Local design/debug screenshots (not part of the app)
+new_design.png
+screenshot_*.png
+
+# WorkBuddy workspace data (local notes, not part of the app)
+.workbuddy/

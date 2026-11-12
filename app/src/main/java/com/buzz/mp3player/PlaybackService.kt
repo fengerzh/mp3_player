@@ -34,7 +34,7 @@ class PlaybackService : Service() {
                     PlaybackStateCompat.ACTION_STOP or
                     PlaybackStateCompat.ACTION_SEEK_TO
                 )
-                stateBuilder.setState(PlaybackStateCompat.STATE_PLAYING, pos, 1.0f)
+                stateBuilder.setState(PlaybackStateCompat.STATE_PLAYING, pos, currentSpeed)
                 mediaSession?.setPlaybackState(stateBuilder.build())
                 lockscreenUpdateHandler.postDelayed(this, 1000)
             }
@@ -47,10 +47,10 @@ class PlaybackService : Service() {
         override fun run() {
             if (isActive && player != null) {
                 val pos = player?.currentPosition ?: 0
-                val fk = folderKey
-                if (fk != null && currentTitle != "MP3播放器") {
-                    PlaybackStore.savePosition(fk, currentTitle, pos)
-                    Log.i("PlaybackService", "autoSave: folderKey=$fk, title=$currentTitle, pos=$pos")
+                // 只在拿到真实播放位置时才写，避免 seekTo 尚未生效时把 0 写回磁盘
+                if (pos > 0) {
+                    persistPosition(pos)
+                    Log.i("PlaybackService", "autoSave: pos=$pos")
                 }
                 autoSaveHandler.postDelayed(this, 5000)
             }
@@ -69,10 +69,20 @@ class PlaybackService : Service() {
             get() = playerRef?.duration ?: field
             set(value) { field = value }
 
+        /** 是否持有真实的 MediaPlayer 实例。进程重建后一定为 false，此时禁止任何写盘 */
+        val hasLivePosition: Boolean
+            get() = playerRef != null
+
+        /** 当前倍速（全局、持久化）。只允许 Service 内部更新，Activity 只读 */
+        @Volatile
+        var currentSpeed: Float = 1.0f
+
         var folderKey: String? = null
         var isActive: Boolean = false
         var onTrackComplete: (() -> Unit)? = null
         var onTrackError: (() -> Unit)? = null
+        /** 设备不支持所选倍速时的界面回调，回退到 1× 后触发 */
+        var onSpeedUnsupported: (() -> Unit)? = null
 
         fun play(context: Context, uri: Uri, positionMs: Int = 0, title: String? = null) {
             val intent = Intent(context, PlaybackService::class.java).apply {
@@ -96,16 +106,59 @@ class PlaybackService : Service() {
             context.startService(Intent(context, PlaybackService::class.java).apply { action = "STOP" })
         }
 
-        fun seekTo(context: Context, pos: Int) {
+        /**
+         * 切换文件夹：先让 Service 用旧 folderKey 保存当前曲目，再把 folderKey 换成新路径。
+         * 顺序放在 Service 内部完成，避免 Activity 先改 key 导致旧进度写进新文件夹。
+         */
+        fun switchFolder(context: Context, path: String) {
             context.startService(Intent(context, PlaybackService::class.java).apply {
-                action = "SEEK"
-                putExtra("position", pos)
+                action = "SWITCH_FOLDER"
+                putExtra("folder", path)
             })
+        }
+
+        /** 播完整个文件夹后清空该文件夹的进度。静态方法，后台回调也能安全调用 */
+        fun clearProgress() {
+            folderKey?.let { PlaybackStore.clearPosition(it) }
+        }
+
+        /**
+         * 用户拖动进度条：位置来自 SeekBar 的显式输入，立即写盘。
+         * 这个值不是进程重建后的内存默认值，因此即使播放器实例不存在也允许写，
+         * 保证之后冷启动 / 切后台读到的都是用户指定的位置。
+         */
+        fun seekTo(context: Context, pos: Int, folderPath: String, fileName: String) {
+            if (pos < 0) return
+            PlaybackStore.savePosition(folderPath, fileName, pos)
+            if (hasLivePosition) {
+                context.startService(Intent(context, PlaybackService::class.java).apply {
+                    action = "SEEK"
+                    putExtra("position", pos)
+                })
+            }
+        }
+
+        /**
+         * 切换倍速：先落盘（覆盖「Service 尚未启动」的冷启动场景），再让正在运行的 Service 应用到播放器。
+         * 没有活跃播放器时不启动服务，等下次开播在 startPlayback() 里应用磁盘上的档位。
+         */
+        fun setSpeed(context: Context, speed: Float) {
+            if (speed <= 0f || speed > 4.0f) return
+            PlaybackStore.saveSpeed(speed)
+            currentSpeed = speed
+            if (hasLivePosition) {
+                context.startService(Intent(context, PlaybackService::class.java).apply {
+                    action = "SPEED"
+                    putExtra("speed", speed)
+                })
+            }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        // 进程重建后从磁盘恢复倍速（Activity 可能已经设置过，这里读到的仍是最新值）
+        currentSpeed = PlaybackStore.getSpeed()
         createNotificationChannel()
         initMediaSession()
         startForeground(1, buildNotification("等待播放"))
@@ -114,34 +167,14 @@ class PlaybackService : Service() {
     private fun initMediaSession() {
         mediaSession = MediaSessionCompat(this, "MP3PlayerSession")
         mediaSession?.setCallback(object : MediaSessionCompat.Callback() {
-            override fun onPlay() {
-                if (isPlayerActive) {
-                    player?.start()
-                    isActive = true
-                    setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    updateNotification("正在播放")
-                }
-            }
-
-            override fun onPause() {
-                if (isPlayerActive) {
-                    player?.pause()
-                    currentPosition = player?.currentPosition ?: 0
-                    isActive = false
-                    setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                    updateNotification("已暂停")
-                }
-            }
-
+            override fun onPlay() { resumePlayback() }
+            override fun onPause() { pausePlayback() }
             override fun onStop() {
                 stopPlayback()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
-
-            override fun onSeekTo(pos: Long) {
-                player?.seekTo(pos.toInt())
-            }
+            override fun onSeekTo(pos: Long) { seekPlayback(pos.toInt()) }
         })
         mediaSession?.setActive(true)
         setMediaPlaybackState(PlaybackStateCompat.STATE_NONE)
@@ -167,7 +200,7 @@ class PlaybackService : Service() {
         }
         stateBuilder.setActions(actions)
         val pos = player?.currentPosition?.toLong() ?: PlaybackService.currentPosition.toLong()
-        val speed = if (state == PlaybackStateCompat.STATE_PLAYING) 1.0f else 0.0f
+        val speed = if (state == PlaybackStateCompat.STATE_PLAYING) currentSpeed else 0.0f
         stateBuilder.setState(state, pos, speed)
         mediaSession?.setPlaybackState(stateBuilder.build())
     }
@@ -192,35 +225,30 @@ class PlaybackService : Service() {
                 val title = intent.getStringExtra("title") ?: "MP3播放器"
                 startPlayback(Uri.parse(uriStr), pos, title)
             }
-            "PAUSE" -> {
-                if (isPlayerActive) {
-                    player?.pause()
-                    currentPosition = player?.currentPosition ?: 0
-                    isActive = false
-                    lockscreenUpdateHandler.removeCallbacks(lockscreenUpdateRunnable)
-                    autoSaveHandler.removeCallbacks(autoSaveRunnable)
-                    // 暂停时立即保存一次
-                    folderKey?.let { fk ->
-                        if (currentTitle != "MP3播放器") PlaybackStore.savePosition(fk, currentTitle, currentPosition)
-                    }
-                    setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                    updateNotification("已暂停")
+            "PAUSE" -> pausePlayback()
+            "RESUME" -> resumePlayback()
+            "SEEK" -> seekPlayback(intent.getIntExtra("position", 0))
+            "SPEED" -> {
+                val s = intent.getFloatExtra("speed", 1.0f)
+                currentSpeed = if (s > 0f && s <= 4.0f) s else 1.0f
+                // 暂停时不改播放器参数：部分机型只在 STARTED 状态接受，resumePlayback() 会重新应用。
+                // 播放中切档立即生效，并借这次调用检测设备是否真的支持该档位。
+                if (isActive && player != null && !applySpeed()) {
+                    revertSpeedToNormal()
                 }
-            }
-            "RESUME" -> {
-                if (isPlayerActive) {
-                    player?.start()
-                    isActive = true
-                    setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    updateNotification("正在播放")
-                }
-            }
-            "SEEK" -> {
-                val pos = intent.getIntExtra("position", 0)
-                player?.seekTo(pos)
+                setMediaPlaybackState(
+                    if (isActive) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+                )
             }
             "STOP" -> {
                 stopPlayback()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            "SWITCH_FOLDER" -> {
+                // stopPlayback() 内部用旧 folderKey 保存当前曲目，之后才切换 key
+                stopPlayback()
+                folderKey = intent.getStringExtra("folder")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -254,12 +282,14 @@ class PlaybackService : Service() {
             player?.prepare()
             Log.i("PlaybackService", "prepare succeeded, duration=${player?.duration}")
             duration = player?.duration ?: 0
-            currentPosition = if (positionMs > 0 && positionMs < duration) {
+            // 本次播放的真实起点：恢复播放时是磁盘上的位置，切曲时是 0
+            val startPos = if (positionMs > 0 && positionMs < duration) {
                 player?.seekTo(positionMs)
                 positionMs
             } else {
-                player?.currentPosition ?: 0
+                0
             }
+            currentPosition = startPos
             player?.setOnCompletionListener {
                 Log.i("PlaybackService", "OnCompletionListener fired")
                 currentPosition = 0
@@ -268,9 +298,13 @@ class PlaybackService : Service() {
                 onTrackComplete?.invoke()
             }
             player?.start()
-            Log.i("PlaybackService", "start() called, isActive=true")
+            Log.i("PlaybackService", "start() called, isActive=true, speed=$currentSpeed")
             isPlayerActive = true
             isActive = true
+            // 开播后应用全局倍速；设备不支持该档则回退 1× 并通知界面
+            if (!applySpeed()) revertSpeedToNormal()
+            // 开播即把真实起点写入磁盘（含切曲时的 0），进度由 Service 统一维护
+            persistPosition(startPos)
 
             // 更新 MediaSession 元数据和播放状态
             updateMediaMetadata(title)
@@ -295,12 +329,9 @@ class PlaybackService : Service() {
     private fun stopPlayback() {
         lockscreenUpdateHandler.removeCallbacks(lockscreenUpdateRunnable)
         autoSaveHandler.removeCallbacks(autoSaveRunnable)
-        // 只有真正在播放时才保存位置（避免 stop 覆盖之前存的正确值）
+        // 只有真正在播放、且持有有效播放器时才保存（避免用内存默认值覆盖磁盘）
         if (isPlayerActive && player != null) {
-            currentPosition = player?.currentPosition ?: 0
-            folderKey?.let { fk ->
-                if (currentTitle != "MP3播放器") PlaybackStore.savePosition(fk, currentTitle, currentPosition)
-            }
+            persistPosition(player?.currentPosition ?: 0)
         }
         isPlayerActive = false
         isActive = false
@@ -311,6 +342,98 @@ class PlaybackService : Service() {
         player = null
         playerRef = null
         setMediaPlaybackState(PlaybackStateCompat.STATE_NONE)
+    }
+
+    /**
+     * 播放进度唯一的写盘入口。
+     * 进程重建后 player 为 null、静态位置归零，这里的守卫可以彻底阻止
+     * 内存默认值被写回 SharedPreferences。Activity 一律只读，不得调用本方法。
+     */
+    private fun persistPosition(pos: Int) {
+        val fk = folderKey ?: return
+        if (currentTitle.isEmpty() || currentTitle == "MP3播放器") return
+        if (player == null) return
+        if (pos < 0) return
+        PlaybackStore.savePosition(fk, currentTitle, pos)
+    }
+
+    /** 统一的暂停流程：onStartCommand 与锁屏/通知栏 MediaSession 共用，暂停即写盘 */
+    private fun pausePlayback() {
+        if (!isPlayerActive) return
+        player?.pause()
+        currentPosition = player?.currentPosition ?: 0
+        isActive = false
+        lockscreenUpdateHandler.removeCallbacks(lockscreenUpdateRunnable)
+        autoSaveHandler.removeCallbacks(autoSaveRunnable)
+        persistPosition(currentPosition)
+        setMediaPlaybackState(PlaybackStateCompat.STATE_PAUSED)
+        updateNotification("已暂停")
+    }
+
+    /** 恢复播放时重新挂上锁屏刷新与 5 秒自动保存，否则暂停过一次后就再也不写盘了 */
+    private fun resumePlayback() {
+        if (!isPlayerActive) return
+        player?.start()
+        isActive = true
+        // 暂停期间可能换过档，恢复时重新应用（部分机型只在 STARTED 状态接受）
+        if (!applySpeed()) revertSpeedToNormal()
+        lockscreenUpdateHandler.removeCallbacks(lockscreenUpdateRunnable)
+        lockscreenUpdateHandler.post(lockscreenUpdateRunnable)
+        autoSaveHandler.removeCallbacks(autoSaveRunnable)
+        autoSaveHandler.postDelayed(autoSaveRunnable, 5000)
+        setMediaPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+        updateNotification("正在播放")
+    }
+
+    /** 拖动进度后立即写盘，避免 seek 生效前进程被杀导致位置回退 */
+    private fun seekPlayback(pos: Int) {
+        if (player == null) return
+        player?.seekTo(pos)
+        persistPosition(pos)
+    }
+
+    /**
+     * 把 currentSpeed 应用到 MediaPlayer，pitch 固定 1.0（不变调）。
+     * 返回 false = 设备/编码明确不支持该档；状态类异常返回 true，
+     * 由下一次 resumePlayback() 重试，避免把临时状态问题误报成「不支持」。
+     */
+    private fun applySpeed(): Boolean {
+        val p = player ?: return true
+        return try {
+            val params = p.playbackParams
+            params.speed = currentSpeed
+            params.pitch = 1.0f
+            p.playbackParams = params
+            Log.i("PlaybackService", "applySpeed: speed=$currentSpeed")
+            true
+        } catch (e: IllegalArgumentException) {
+            Log.w("PlaybackService", "applySpeed unsupported: ${e.message}")
+            false
+        } catch (e: UnsupportedOperationException) {
+            Log.w("PlaybackService", "applySpeed unsupported: ${e.message}")
+            false
+        } catch (e: Exception) {
+            Log.w("PlaybackService", "applySpeed deferred: ${e.message}")
+            true
+        }
+    }
+
+    /** 设备不支持所选倍速：回到 1×、同步落盘，并回调界面把选中态退回 1× 后提示 */
+    private fun revertSpeedToNormal() {
+        currentSpeed = 1.0f
+        PlaybackStore.saveSpeed(1.0f)
+        try {
+            player?.let { p ->
+                val params = p.playbackParams
+                params.speed = 1.0f
+                params.pitch = 1.0f
+                p.playbackParams = params
+            }
+        } catch (e: Exception) { }
+        Log.w("PlaybackService", "revertSpeedToNormal: 已回退 1×")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onSpeedUnsupported?.invoke()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
