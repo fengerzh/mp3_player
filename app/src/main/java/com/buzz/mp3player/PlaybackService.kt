@@ -143,7 +143,7 @@ class PlaybackService : Service() {
          * 没有活跃播放器时不启动服务，等下次开播在 startPlayback() 里应用磁盘上的档位。
          */
         fun setSpeed(context: Context, speed: Float) {
-            if (speed <= 0f || speed > 4.0f) return
+            if (!PlaybackStore.isSupportedSpeed(speed)) return
             PlaybackStore.saveSpeed(speed)
             currentSpeed = speed
             if (hasLivePosition) {
@@ -230,7 +230,7 @@ class PlaybackService : Service() {
             "SEEK" -> seekPlayback(intent.getIntExtra("position", 0))
             "SPEED" -> {
                 val s = intent.getFloatExtra("speed", 1.0f)
-                currentSpeed = if (s > 0f && s <= 4.0f) s else 1.0f
+                currentSpeed = if (PlaybackStore.isSupportedSpeed(s)) s else 1.0f
                 // 暂停时不改播放器参数：部分机型只在 STARTED 状态接受，resumePlayback() 会重新应用。
                 // 播放中切档立即生效，并借这次调用检测设备是否真的支持该档位。
                 if (isActive && player != null && !applySpeed()) {

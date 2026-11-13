@@ -57,14 +57,18 @@
                     android:textColor="#8888A0" />
             </LinearLayout>
 
-            <!-- 最近文件夹按钮 -->
-            <Button
+            <!-- 用 TextView 而非 Button：MaterialButton 的默认 backgroundTint 会覆盖
+                 android:background，把浅蓝底染成实心蓝，蓝字随之消失（倍速 chip 同源问题） -->
+            <TextView
                 android:id="@+id/recentFoldersBtn"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
+                android:minWidth="64dp"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="最近"
                 android:textSize="13sp"
-                android:textAllCaps="false"
                 android:textColor="#2A6DF7"
                 android:background="@drawable/bg_recent_button"
                 android:paddingStart="12dp"
@@ -72,13 +76,16 @@
                 android:layout_marginEnd="8dp"
                 android:visibility="gone" />
 
-            <Button
+            <TextView
                 android:id="@+id/pickFolderBtn"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
+                android:minWidth="64dp"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="选择文件夹"
                 android:textSize="13sp"
-                android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/bg_folder_button"
                 android:paddingStart="14dp"
@@ -238,6 +245,20 @@
                 android:layout_marginEnd="6dp" />
 
             <TextView
+                android:id="@+id/speedChip125"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:text="1.25×"
+                android:textSize="13sp"
+                android:textColor="#2A6DF7"
+                android:background="@drawable/bg_speed_chip_normal"
+                android:layout_marginEnd="6dp" />
+
+            <TextView
                 android:id="@+id/speedChip15"
                 android:layout_width="0dp"
                 android:layout_height="32dp"
@@ -274,20 +295,6 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:text="3×"
-                android:textSize="13sp"
-                android:textColor="#2A6DF7"
-                android:background="@drawable/bg_speed_chip_normal"
-                android:layout_marginEnd="6dp" />
-
-            <TextView
-                android:id="@+id/speedChip4"
-                android:layout_width="0dp"
-                android:layout_height="32dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:text="4×"
                 android:textSize="13sp"
                 android:textColor="#2A6DF7"
                 android:background="@drawable/bg_speed_chip_normal" />

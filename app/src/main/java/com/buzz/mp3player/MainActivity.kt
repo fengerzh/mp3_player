@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -27,15 +28,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playPauseBtn: ImageButton
     private lateinit var prevBtn: ImageButton
     private lateinit var nextBtn: ImageButton
-    private lateinit var recentFoldersBtn: Button
+    private lateinit var recentFoldersBtn: TextView
 
-    /** 倍速档位与对应控件，顺序即界面从左到右的顺序 */
+    /** 倍速档位与对应控件，顺序即界面从左到右的顺序。
+     *  增删档位时同步 PlaybackStore.SUPPORTED_SPEEDS（合法值白名单） */
     private val speedOptions = listOf(
         1.0f to R.id.speedChip1,
+        1.25f to R.id.speedChip125,
         1.5f to R.id.speedChip15,
         2.0f to R.id.speedChip2,
-        3.0f to R.id.speedChip3,
-        4.0f to R.id.speedChip4
+        3.0f to R.id.speedChip3
     )
     private val speedButtons = mutableListOf<TextView>()
 
@@ -106,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         trackList.layoutManager = LinearLayoutManager(this)
         trackList.adapter = trackAdapter
 
-        findViewById<Button>(R.id.pickFolderBtn).setOnClickListener {
+        findViewById<TextView>(R.id.pickFolderBtn).setOnClickListener {
             if (!Environment.isExternalStorageManager()) {
                 requestAllFilesAccess()
             } else {
@@ -178,7 +180,7 @@ class MainActivity : AppCompatActivity() {
     /** 显示或隐藏"最近"按钮：有最近文件夹时才显示 */
     private fun updateRecentFoldersBtnVisibility() {
         val recent = PlaybackStore.getRecentFolders()
-        recentFoldersBtn.visibility = if (recent.isNotEmpty()) Button.VISIBLE else Button.GONE
+        recentFoldersBtn.visibility = if (recent.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
     /** 弹出最近播放过的文件夹列表供用户选择 */

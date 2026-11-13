@@ -54,14 +54,27 @@ object PlaybackStore {
     // 与进度同理：写权限只在 PlaybackService（setSpeed / 失败回退），Activity 只读 getSpeed()。
     // 倍速是全局设置，切曲、换文件夹都不重置。
 
-    /** 写入倍速。只允许 PlaybackService.setSpeed() 和失败回退时调用 */
+    /** 当前版本支持的档位白名单。增删档位时同步 MainActivity.speedOptions */
+    private val SUPPORTED_SPEEDS = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+
+    fun isSupportedSpeed(speed: Float): Boolean =
+        SUPPORTED_SPEEDS.any { kotlin.math.abs(it - speed) < 0.01f }
+
+    /** 写入倍速。只允许 PlaybackService.setSpeed() / 失败回退 / getSpeed() 的旧值规范化调用 */
     fun saveSpeed(speed: Float) {
         prefs.edit().putFloat(KEY_PLAYBACK_SPEED, speed).commit()
     }
 
+    /**
+     * 读取倍速。若存档里是已下线的旧档位（例如 4.0）或非法值，规范化回 1× 并写回，
+     * 否则界面会停在「没有任何档位高亮」的状态。这是 Store 内部的数据自愈，
+     * 不违反「Service 写、Activity 读」的边界：Activity 仍然只读。
+     */
     fun getSpeed(): Float {
         val v = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f)
-        return if (v > 0f && v <= 4.0f) v else 1.0f
+        if (isSupportedSpeed(v)) return v
+        saveSpeed(1.0f)
+        return 1.0f
     }
 
     // ===== 最近播放过的文件夹 =====
